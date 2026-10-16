@@ -1,0 +1,143 @@
+asyncapi: 2.6.0
+id: urn:azure-intelligence-domain:supply:system-api-wms
+info:
+  title: '[Supply] WMS Events'
+  version: 1.0.0
+  description: The business facts of the supply domain, published by the WMS System API to evgt-intplat-supply.
+    Every event carries orderid (and customerid when known) and the order's journey as correlationid.
+  contact:
+    name: Supply Domain Team
+    url: https://github.com/azure-intelligence-domain/system-api-wms
+  license:
+    name: MIT
+    url: https://github.com/azure-intelligence-domain/system-api-wms/blob/main/LICENSE
+tags:
+- name: supply
+  description: Supply domain.
+externalDocs:
+  description: EventCatalog entry of the supply domain
+  url: https://azure-intelligence-domain.github.io/eventcatalog/docs/domains/supply/1.0.0
+defaultContentType: application/cloudevents+json
+servers:
+  demo-event-grid:
+    $ref: https://raw.githubusercontent.com/azure-intelligence-domain/contracts/v1.2.0/asyncapi/landscape.asyncapi.yaml#/components/servers/demo-event-grid
+channels:
+  supply.system-api-wms.event.stock-reserved:
+    description: Stock was set aside in the warehouse for every line of an order.
+    servers:
+    - demo-event-grid
+    x-configurations:
+      demo:
+        eventGrid:
+          topic: evgt-intplat-supply
+          eventType: com.acme.supply.stockReserved
+    publish:
+      operationId: publishStockReserved
+      summary: Publish StockReserved.
+      description: 'The WMS System API publishes StockReserved when this fact happens: Stock was set aside in the
+        warehouse for every line of an order.'
+      security:
+      - entraIdEventGrid:
+        - https://eventgrid.azure.net/.default
+      tags:
+      - name: supply
+        description: Supply domain.
+      externalDocs:
+        description: StockReserved in EventCatalog
+        url: https://azure-intelligence-domain.github.io/eventcatalog/docs/events/stockReserved
+      x-producers:
+        demo:
+        - system-api-wms
+      message:
+        $ref: '#/components/messages/stockReserved'
+components:
+  securitySchemes:
+    entraIdEventGrid:
+      $ref: https://raw.githubusercontent.com/azure-intelligence-domain/contracts/v1.2.0/asyncapi/landscape.asyncapi.yaml#/components/securitySchemes/entraIdEventGrid
+  messages:
+    stockReserved:
+      messageId: stockReserved
+      name: stockReserved
+      title: Stock Reserved
+      summary: Stock was set aside in the warehouse for every line of an order.
+      description: CloudEvent of type com.acme.supply.stockReserved. Stock was set aside in the warehouse for every
+        line of an order.
+      contentType: application/cloudevents+json
+      payload:
+        allOf:
+        - $ref: https://raw.githubusercontent.com/azure-intelligence-domain/contracts/v1.2.0/schemas/envelope/1.1.0/envelope.schema.json
+        - type: object
+          description: What this event adds to the envelope.
+          required:
+          - type
+          - orderid
+          - data
+          properties:
+            type:
+              const: com.acme.supply.stockReserved
+            orderid:
+              type: string
+            data:
+              $ref: '#/components/schemas/stockReservedData'
+      examples:
+      - name: acmeOrder4711
+        summary: StockReserved for ACME's order 4711.
+        payload:
+          specversion: '1.0'
+          id: stockReserved-4711-0001
+          source: /system-api-wms/1.0.0
+          type: com.acme.supply.stockReserved
+          time: '2026-10-03T09:15:11Z'
+          datacontenttype: application/json
+          correlationid: ord-4711
+          customerid: ACME
+          orderid: '4711'
+          data:
+            orderId: '4711'
+            reservationId: RSV-4711
+            warehouseId: BRU-1
+            orderLines:
+            - productId: SKU-1042
+              quantity: 12
+            reservedAt: '2026-10-03T09:15:10Z'
+  schemas:
+    stockReservedData:
+      type: object
+      description: The reservation.
+      required:
+      - orderId
+      - reservationId
+      - warehouseId
+      - orderLines
+      - reservedAt
+      properties:
+        orderId:
+          type: string
+          description: The order.
+        reservationId:
+          type: string
+          description: Reservation id.
+        warehouseId:
+          type: string
+          description: Where.
+        orderLines:
+          type: array
+          description: What is reserved.
+          items:
+            type: object
+            description: A line of the order.
+            required:
+            - productId
+            - quantity
+            properties:
+              productId:
+                type: string
+                description: The product, e.g. SKU-1042.
+              quantity:
+                type: integer
+                description: Units.
+                minimum: 1
+        reservedAt:
+          type: string
+          description: When. ISO 8601, UTC.
+          format: date-time

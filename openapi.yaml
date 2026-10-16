@@ -1,0 +1,410 @@
+openapi: 3.0.3
+info:
+  title: '[Supply] WMS System API'
+  version: 1.0.0
+  description: 'The warehouse management system of the supply domain: stock per product and reservations per order,
+    translated to the platform''s contract. Internal: only building blocks on the platform''s allow-list may call
+    it. Reservations become supply facts on evgt-intplat-supply (asyncapi.yaml).'
+  contact:
+    name: Supply Domain Team
+    url: https://github.com/azure-intelligence-domain/system-api-wms
+  license:
+    name: MIT
+    url: https://github.com/azure-intelligence-domain/system-api-wms/blob/main/LICENSE
+  x-gateway: other
+x-gateway: other
+externalDocs:
+  description: EventCatalog entry of the supply domain
+  url: https://azure-intelligence-domain.github.io/eventcatalog/docs/domains/supply/1.0.0
+servers:
+- url: https://apim-intplat-demo.azure-api.net/wms
+  description: Gateway, product system-apis (internal callers only). No version in the URI.
+security:
+- platformToken: []
+tags:
+- name: Stock
+  description: Stock and stock reservations in the warehouse.
+paths:
+  /stock-reservations:
+    x-summary: Stock Reservations
+    post:
+      tags:
+      - Stock
+      operationId: reserveStock
+      summary: Reserve Stock
+      description: 'Sets stock aside for an order, in one warehouse. Publishes StockReserved. One reservation per
+        order: a retry returns the existing one (200) and publishes nothing. Not enough stock: 409, nothing is reserved.'
+      parameters:
+      - $ref: '#/components/parameters/correlationId'
+      responses:
+        '201':
+          description: The reservation.
+          content:
+            application/hal+json:
+              schema:
+                $ref: '#/components/schemas/stockReservation'
+              example:
+                _links:
+                  self:
+                    href: /stock-reservations/RSV-4711
+                reservationId: RSV-4711
+                orderId: '4711'
+                warehouseId: BRU-1
+                orderLines:
+                - productId: SKU-1042
+                  quantity: 12
+                status: reserved
+                reservedAt: '2026-10-03T09:15:10Z'
+          headers:
+            Location:
+              description: URI of the new resource.
+              schema:
+                type: string
+              example: /stock-reservations/RSV-4711
+        '200':
+          description: The reservation already existed for this orderId.
+          content:
+            application/hal+json:
+              schema:
+                $ref: '#/components/schemas/stockReservation'
+              example:
+                _links:
+                  self:
+                    href: /stock-reservations/RSV-4711
+                reservationId: RSV-4711
+                orderId: '4711'
+                warehouseId: BRU-1
+                orderLines:
+                - productId: SKU-1042
+                  quantity: 12
+                status: reserved
+                reservedAt: '2026-10-03T09:15:10Z'
+        '400':
+          description: The request does not match the contract, or the Correlation-Id header is missing or invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/problemDetail'
+              example:
+                type: https://github.com/azure-intelligence-domain/system-api-wms/blob/main/docs/problems/invalid-request.md
+                title: Invalid Request
+                status: 400
+                detail: The request does not match the contract, or the Correlation-Id header is missing or invalid.
+                instance: /stock-reservations
+        '409':
+          description: Not enough stock to reserve every line; nothing was reserved.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/problemDetail'
+              example:
+                type: https://github.com/azure-intelligence-domain/system-api-wms/blob/main/docs/problems/insufficient-stock.md
+                title: Insufficient Stock
+                status: 409
+                detail: Not enough stock to reserve every line; nothing was reserved.
+                instance: /stock-reservations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/reservationRequest'
+            example:
+              orderId: '4711'
+              customerId: ACME
+              orderLines:
+              - productId: SKU-1042
+                quantity: 12
+      x-business-keys:
+        orderid: body.orderId
+        customerid: body.customerId
+      x-events:
+      - StockReserved
+  /stock-reservations/{reservationId}:
+    x-summary: Stock Reservation
+    get:
+      tags:
+      - Stock
+      operationId: retrieveStockReservation
+      summary: Retrieve Stock Reservation
+      description: One reservation.
+      parameters:
+      - $ref: '#/components/parameters/reservationId'
+      - $ref: '#/components/parameters/correlationId'
+      responses:
+        '200':
+          description: The reservation.
+          content:
+            application/hal+json:
+              schema:
+                $ref: '#/components/schemas/stockReservation'
+              example:
+                _links:
+                  self:
+                    href: /stock-reservations/RSV-4711
+                reservationId: RSV-4711
+                orderId: '4711'
+                warehouseId: BRU-1
+                orderLines:
+                - productId: SKU-1042
+                  quantity: 12
+                status: reserved
+                reservedAt: '2026-10-03T09:15:10Z'
+        '400':
+          description: The request does not match the contract, or the Correlation-Id header is missing or invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/problemDetail'
+              example:
+                type: https://github.com/azure-intelligence-domain/system-api-wms/blob/main/docs/problems/invalid-request.md
+                title: Invalid Request
+                status: 400
+                detail: The request does not match the contract, or the Correlation-Id header is missing or invalid.
+                instance: /stock-reservations/RSV-4711
+        '404':
+          description: The WMS has no reservation with this id.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/problemDetail'
+              example:
+                type: https://github.com/azure-intelligence-domain/system-api-wms/blob/main/docs/problems/not-found.md
+                title: Reservation Not Found
+                status: 404
+                detail: The WMS has no reservation with this id.
+                instance: /stock-reservations/RSV-4711
+      x-business-keys: {}
+  /stock-items/{productId}:
+    x-summary: Stock Item
+    get:
+      tags:
+      - Stock
+      operationId: retrieveStockItem
+      summary: Retrieve Stock Item
+      description: Stock of one product in the warehouse.
+      parameters:
+      - $ref: '#/components/parameters/productId'
+      - $ref: '#/components/parameters/correlationId'
+      responses:
+        '200':
+          description: The stock.
+          content:
+            application/hal+json:
+              schema:
+                $ref: '#/components/schemas/stockItem'
+              example:
+                _links:
+                  self:
+                    href: /stock-items/SKU-1042
+                productId: SKU-1042
+                warehouseId: BRU-1
+                onHand: 1000
+                reserved: 12
+                available: 988
+        '400':
+          description: The request does not match the contract, or the Correlation-Id header is missing or invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/problemDetail'
+              example:
+                type: https://github.com/azure-intelligence-domain/system-api-wms/blob/main/docs/problems/invalid-request.md
+                title: Invalid Request
+                status: 400
+                detail: The request does not match the contract, or the Correlation-Id header is missing or invalid.
+                instance: /stock-items/SKU-1042
+      x-business-keys: {}
+components:
+  securitySchemes:
+    platformToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Entra ID token for the intplat-platform-apis application, of a runtime identity on the platform's
+        allow-list (internal-callers).
+  parameters:
+    correlationId:
+      name: Correlation-Id
+      in: header
+      required: true
+      description: The business journey this call belongs to, for example ord-4711.
+      schema:
+        type: string
+        pattern: ^[a-z0-9]+(-[a-z0-9]+)*$
+        maxLength: 64
+      example: ord-4711
+    reservationId:
+      name: reservationId
+      in: path
+      required: true
+      description: Reservation id, e.g. RSV-4711.
+      schema:
+        type: string
+        pattern: ^RSV-[0-9]+$
+      example: RSV-4711
+    productId:
+      name: productId
+      in: path
+      required: true
+      description: The product, e.g. SKU-1042.
+      schema:
+        type: string
+        pattern: ^[A-Za-z0-9-]+$
+      example: SKU-1042
+  schemas:
+    reservationRequest:
+      type: object
+      description: What to reserve for an order.
+      required:
+      - orderId
+      - orderLines
+      properties:
+        orderId:
+          type: string
+          description: The platform's order id.
+        customerId:
+          type: string
+          description: The customer, for the business key.
+        orderLines:
+          type: array
+          minItems: 1
+          description: What to reserve.
+          items:
+            type: object
+            description: A line of the order.
+            required:
+            - productId
+            - quantity
+            properties:
+              productId:
+                type: string
+                description: The product, e.g. SKU-1042.
+              quantity:
+                type: integer
+                description: Units.
+                minimum: 1
+    stockReservation:
+      type: object
+      description: Stock set aside for one order.
+      required:
+      - _links
+      - reservationId
+      - orderId
+      - warehouseId
+      - orderLines
+      - status
+      - reservedAt
+      properties:
+        _links:
+          type: object
+          description: HAL links.
+          required:
+          - self
+          properties:
+            self:
+              $ref: '#/components/schemas/halLink'
+        reservationId:
+          type: string
+          description: Reservation id.
+        orderId:
+          type: string
+          description: The order.
+        customerId:
+          type: string
+          description: The customer.
+        warehouseId:
+          type: string
+          description: Where.
+        orderLines:
+          type: array
+          description: What is reserved.
+          items:
+            type: object
+            description: A line of the order.
+            required:
+            - productId
+            - quantity
+            properties:
+              productId:
+                type: string
+                description: The product, e.g. SKU-1042.
+              quantity:
+                type: integer
+                description: Units.
+                minimum: 1
+        status:
+          type: string
+          description: Lifecycle.
+          enum:
+          - reserved
+        reservedAt:
+          type: string
+          description: When. ISO 8601, UTC.
+          format: date-time
+    stockItem:
+      type: object
+      description: Stock of one product.
+      required:
+      - _links
+      - productId
+      - warehouseId
+      - onHand
+      - reserved
+      - available
+      properties:
+        _links:
+          type: object
+          description: HAL links.
+          required:
+          - self
+          properties:
+            self:
+              $ref: '#/components/schemas/halLink'
+        productId:
+          type: string
+          description: The product.
+        warehouseId:
+          type: string
+          description: The warehouse.
+        onHand:
+          type: integer
+          description: Units in the warehouse.
+        reserved:
+          type: integer
+          description: Units promised to orders.
+        available:
+          type: integer
+          description: onHand minus reserved.
+    halLink:
+      type: object
+      description: A HAL link.
+      required:
+      - href
+      properties:
+        href:
+          type: string
+          description: URI relative to the API root.
+    problemDetail:
+      type: object
+      description: Problem Details (RFC 9457).
+      required:
+      - title
+      - detail
+      properties:
+        type:
+          type: string
+          description: Problem type.
+          format: uri
+        title:
+          type: string
+          description: Summary.
+        status:
+          type: integer
+          description: HTTP status.
+        detail:
+          type: string
+          description: This occurrence.
+        instance:
+          type: string
+          description: Request URI.
