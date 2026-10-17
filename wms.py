@@ -22,7 +22,8 @@ def reservation(doc: dict) -> dict:
     out = {"_links": {"self": {"href": f"/stock-reservations/{doc['id']}"}}, "reservationId": doc["id"], "orderId": doc["orderRef"],
            "customerId": doc.get("customer"), "warehouseId": doc["warehouse"],
            "orderLines": [{"productId": line["sku"], "quantity": line["qty"]} for line in doc["lines"]],
-           "status": doc["state"].lower(), "reservedAt": doc["createdAt"]}
+           "status": "reserved", "lifecycleStatus": doc["state"].lower(), "reservedAt": doc["createdAt"], "releasedAt": doc.get("releasedAt"),
+           "releaseReason": doc.get("releaseReason")}
     return {k: v for k, v in out.items() if v is not None}
 
 
@@ -58,3 +59,35 @@ def reserve(store, request: dict) -> tuple[int, dict, list[Fact]]:
                                                   "warehouseId": WAREHOUSE, "orderLines": reserved["orderLines"],
                                                   "reservedAt": doc["createdAt"]},
                                 order_id=request["orderId"], customer_id=request.get("customerId"))]
+
+
+def give_back(store, sku: str, qty: int) -> None:
+    """Reserved units of a product become available again."""
+    while True:
+        stock = item(store, sku)
+        try:
+            store.replace("StockItem", {**stock, "reserved": max(0, stock["reserved"] - qty)})
+            return
+        except kit.Changed:
+            continue  # another reservation changed this product meanwhile
+
+
+class ReservationNotFound(Exception):
+    pass
+
+
+def release(store, reservation_id: str, reason: str) -> tuple[dict, list[Fact]]:
+    """Give a reservation's stock back (soft delete: status released). A repeated release changes nothing."""
+    doc = store.get("Reservation", reservation_id)
+    if doc is None:
+        raise ReservationNotFound
+    if doc["state"] == "RELEASED":
+        return reservation(doc), []
+    doc.update(state="RELEASED", releasedAt=kit.now(), releaseReason=reason)
+    store.replace("Reservation", doc)  # first: of two concurrent releases, only one gets here
+    for line in doc["lines"]:
+        give_back(store, line["sku"], line["qty"])
+    released = reservation(doc)
+    return released, [Fact("StockReleased", {"orderId": doc["orderRef"], "reservationId": doc["id"], "warehouseId": doc["warehouse"],
+                                             "orderLines": released["orderLines"], "reason": reason, "releasedAt": doc["releasedAt"]},
+                           order_id=doc["orderRef"], customer_id=doc.get("customer"))]

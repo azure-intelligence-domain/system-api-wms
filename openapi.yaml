@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: '[Supply] WMS System API'
-  version: 1.0.0
+  version: 1.1.0
   description: 'The warehouse management system of the supply domain: stock per product and reservations per order,
     translated to the platform''s contract. Internal: only building blocks on the platform''s allow-list may call
     it. Reservations become supply facts on evgt-intplat-supply (asyncapi.yaml).'
@@ -54,6 +54,7 @@ paths:
                 - productId: SKU-1042
                   quantity: 12
                 status: reserved
+                lifecycleStatus: reserved
                 reservedAt: '2026-10-03T09:15:10Z'
           headers:
             Location:
@@ -78,6 +79,7 @@ paths:
                 - productId: SKU-1042
                   quantity: 12
                 status: reserved
+                lifecycleStatus: reserved
                 reservedAt: '2026-10-03T09:15:10Z'
         '400':
           description: The request does not match the contract, or the Correlation-Id header is missing or invalid.
@@ -149,6 +151,7 @@ paths:
                 - productId: SKU-1042
                   quantity: 12
                 status: reserved
+                lifecycleStatus: reserved
                 reservedAt: '2026-10-03T09:15:10Z'
         '400':
           description: The request does not match the contract, or the Correlation-Id header is missing or invalid.
@@ -175,6 +178,66 @@ paths:
                 detail: The WMS has no reservation with this id.
                 instance: /stock-reservations/RSV-4711
       x-business-keys: {}
+    delete:
+      tags:
+      - Stock
+      operationId: releaseStock
+      summary: Release Stock
+      description: 'Gives a reservation''s stock back (soft delete: lifecycleStatus released). Publishes StockReleased.
+        Releasing a released reservation changes nothing (since 1.1.0).'
+      parameters:
+      - $ref: '#/components/parameters/reservationId'
+      - $ref: '#/components/parameters/reason'
+      - $ref: '#/components/parameters/correlationId'
+      responses:
+        '200':
+          description: The reservation, released.
+          content:
+            application/hal+json:
+              schema:
+                $ref: '#/components/schemas/stockReservation'
+              example:
+                _links:
+                  self:
+                    href: /stock-reservations/RSV-4711
+                reservationId: RSV-4711
+                orderId: '4711'
+                warehouseId: BRU-1
+                orderLines:
+                - productId: SKU-1042
+                  quantity: 12
+                status: reserved
+                lifecycleStatus: released
+                reservedAt: '2026-10-03T09:15:10Z'
+                releasedAt: '2026-10-03T09:30:02Z'
+                releaseReason: Order cancelled.
+        '400':
+          description: The request does not match the contract, or the Correlation-Id header is missing or invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/problemDetail'
+              example:
+                type: https://github.com/azure-intelligence-domain/system-api-wms/blob/main/docs/problems/invalid-request.md
+                title: Invalid Request
+                status: 400
+                detail: The request does not match the contract, or the Correlation-Id header is missing or invalid.
+                instance: /stock-reservations/RSV-4711
+        '404':
+          description: The WMS has no reservation with this id.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/problemDetail'
+              example:
+                type: https://github.com/azure-intelligence-domain/system-api-wms/blob/main/docs/problems/not-found.md
+                title: Reservation Not Found
+                status: 404
+                detail: The WMS has no reservation with this id.
+                instance: /stock-reservations/RSV-4711
+      x-business-keys: {}
+      x-events:
+      - StockReleased
   /stock-items/{productId}:
     x-summary: Stock Item
     get:
@@ -252,6 +315,15 @@ components:
         type: string
         pattern: ^[A-Za-z0-9-]+$
       example: SKU-1042
+    reason:
+      name: reason
+      in: query
+      required: false
+      description: Why, at most 200 characters, e.g. Order cancelled.
+      schema:
+        type: string
+        maxLength: 200
+      example: Order cancelled.
   schemas:
     reservationRequest:
       type: object
@@ -335,13 +407,27 @@ components:
                 minimum: 1
         status:
           type: string
-          description: Lifecycle.
+          description: 'Deprecated since 1.1.0: always reserved, also for a released reservation. Use lifecycleStatus.'
           enum:
           - reserved
+          deprecated: true
+        lifecycleStatus:
+          type: string
+          description: Where the reservation is in its lifecycle (since 1.1.0). More values may follow.
+          x-extensible-enum:
+          - reserved
+          - released
         reservedAt:
           type: string
           description: When. ISO 8601, UTC.
           format: date-time
+        releasedAt:
+          type: string
+          description: When the stock was released (since 1.1.0). ISO 8601, UTC.
+          format: date-time
+        releaseReason:
+          type: string
+          description: Why it was released (since 1.1.0).
     stockItem:
       type: object
       description: Stock of one product.

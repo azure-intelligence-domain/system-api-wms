@@ -56,3 +56,18 @@ def test_lines_of_the_same_product_add_up(wms):
 
 def test_unknown_reservation_is_404(wms):
     assert api.retrieve_stock_reservation(request("GET", "/x", route={"reservationId": "RSV-1"}), wms[0]).status_code == 404
+
+
+def test_releasing_gives_the_stock_back(wms):
+    reserve(wms)
+    req = func.HttpRequest("DELETE", "/stock-reservations/RSV-4711", headers={"Correlation-Id": "ord-4711"},
+                           route_params={"reservationId": "RSV-4711"}, params={"reason": "Order cancelled."}, body=b"")
+    response = api.release_stock(req, *wms)
+    released = json.loads(response.get_body())
+    assert response.status_code == 200 and released["lifecycleStatus"] == "released" and released["releaseReason"] == "Order cancelled."
+    assert wms[0].get("StockItem", "BRU-1|SKU-1042")["reserved"] == 0
+    assert wms[1].types[-1] == "com.acme.supply.stockReleased"
+    assert_matches_asyncapi(wms[1].events[-1])
+    assert api.release_stock(req, *wms).status_code == 200 and len(wms[1].events) == 2  # a repeat changes nothing
+    unknown = func.HttpRequest("DELETE", "/x", headers={"Correlation-Id": "ord-4711"}, route_params={"reservationId": "RSV-1"}, body=b"")
+    assert api.release_stock(unknown, *wms).status_code == 404

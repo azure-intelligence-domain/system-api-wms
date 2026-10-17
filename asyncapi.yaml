@@ -2,7 +2,7 @@ asyncapi: 2.6.0
 id: urn:azure-intelligence-domain:supply:system-api-wms
 info:
   title: '[Supply] WMS Events'
-  version: 1.0.0
+  version: 1.1.0
   description: The business facts of the supply domain, published by the WMS System API to evgt-intplat-supply.
     Every event carries orderid (and customerid when known) and the order's journey as correlationid.
   contact:
@@ -50,6 +50,34 @@ channels:
         - system-api-wms
       message:
         $ref: '#/components/messages/stockReserved'
+  supply.system-api-wms.event.stock-released:
+    description: Stock set aside for an order was given back, for example because the order was cancelled.
+    servers:
+    - demo-event-grid
+    x-configurations:
+      demo:
+        eventGrid:
+          topic: evgt-intplat-supply
+          eventType: com.acme.supply.stockReleased
+    publish:
+      operationId: publishStockReleased
+      summary: Publish StockReleased.
+      description: 'The WMS System API publishes StockReleased when this fact happens: Stock set aside for an order
+        was given back, for example because the order was cancelled.'
+      security:
+      - entraIdEventGrid:
+        - https://eventgrid.azure.net/.default
+      tags:
+      - name: supply
+        description: Supply domain.
+      externalDocs:
+        description: StockReleased in EventCatalog
+        url: https://azure-intelligence-domain.github.io/eventcatalog/docs/events/stockReleased
+      x-producers:
+        demo:
+        - system-api-wms
+      message:
+        $ref: '#/components/messages/stockReleased'
 components:
   securitySchemes:
     entraIdEventGrid:
@@ -100,6 +128,52 @@ components:
             - productId: SKU-1042
               quantity: 12
             reservedAt: '2026-10-03T09:15:10Z'
+    stockReleased:
+      messageId: stockReleased
+      name: stockReleased
+      title: Stock Released
+      summary: Stock set aside for an order was given back, for example because the order was cancelled.
+      description: CloudEvent of type com.acme.supply.stockReleased. Stock set aside for an order was given back,
+        for example because the order was cancelled.
+      contentType: application/cloudevents+json
+      payload:
+        allOf:
+        - $ref: https://raw.githubusercontent.com/azure-intelligence-domain/contracts/v1.2.0/schemas/envelope/1.1.0/envelope.schema.json
+        - type: object
+          description: What this event adds to the envelope.
+          required:
+          - type
+          - orderid
+          - data
+          properties:
+            type:
+              const: com.acme.supply.stockReleased
+            orderid:
+              type: string
+            data:
+              $ref: '#/components/schemas/stockReleasedData'
+      examples:
+      - name: acmeOrder4711
+        summary: StockReleased for ACME's order 4711.
+        payload:
+          specversion: '1.0'
+          id: stockReleased-4711-0001
+          source: /system-api-wms/1.0.0
+          type: com.acme.supply.stockReleased
+          time: '2026-10-03T09:30:03Z'
+          datacontenttype: application/json
+          correlationid: ord-4711
+          customerid: ACME
+          orderid: '4711'
+          data:
+            orderId: '4711'
+            reservationId: RSV-4711
+            warehouseId: BRU-1
+            orderLines:
+            - productId: SKU-1042
+              quantity: 12
+            reason: Order cancelled.
+            releasedAt: '2026-10-03T09:30:02Z'
   schemas:
     stockReservedData:
       type: object
@@ -138,6 +212,49 @@ components:
                 description: Units.
                 minimum: 1
         reservedAt:
+          type: string
+          description: When. ISO 8601, UTC.
+          format: date-time
+    stockReleasedData:
+      type: object
+      description: The released reservation.
+      required:
+      - orderId
+      - reservationId
+      - warehouseId
+      - orderLines
+      - releasedAt
+      properties:
+        orderId:
+          type: string
+          description: The order.
+        reservationId:
+          type: string
+          description: Reservation id.
+        warehouseId:
+          type: string
+          description: Where.
+        orderLines:
+          type: array
+          description: What is given back.
+          items:
+            type: object
+            description: A line of the order.
+            required:
+            - productId
+            - quantity
+            properties:
+              productId:
+                type: string
+                description: The product, e.g. SKU-1042.
+              quantity:
+                type: integer
+                description: Units.
+                minimum: 1
+        reason:
+          type: string
+          description: Why.
+        releasedAt:
           type: string
           description: When. ISO 8601, UTC.
           format: date-time

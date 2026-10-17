@@ -19,7 +19,7 @@ flowchart LR
     caller["supply-intake<br/>Logic App"] -- "Entra token" --> apim{{"apim-intplat-demo<br/>product system-apis"}}
     apim -- "gateway identity" --> func["func-intplat-system-api-wms<br/>Easy Auth: the gateway only"]
     func -- "runtime identity" --> db[("cosmos-intplat-wms<br/>StockItem · Reservation")]
-    func -- "StockReserved" --> topic[["evgt-intplat-supply"]]
+    func -- "StockReserved · StockReleased" --> topic[["evgt-intplat-supply"]]
     topic --> tap[["tap"]]
     topic --> order["Order Process API<br/>(policies)"]
 ```
@@ -28,6 +28,7 @@ flowchart LR
 |---|---|---|
 | Reserve Stock | `POST /stock-reservations` | Every line or none; 409 when stock is short. One per order. |
 | Retrieve Stock Reservation | `GET /stock-reservations/{reservationId}` |  |
+| Release Stock | `DELETE /stock-reservations/{reservationId}?reason=` | Soft delete: the stock is available again, StockReleased (since 1.1.0) |
 | Retrieve Stock Item | `GET /stock-items/{productId}` | onHand, reserved, available |
 
 Every write is idempotent per order where the contract says so: a retry returns what exists and
@@ -45,6 +46,7 @@ order domain.
 | `reservationId` | Reservation.id (RSV-<orderId>) |
 | `orderId` | orderRef |
 | `orderLines[]` | lines: sku, qty |
+| `lifecycleStatus` | state: RESERVED → reserved, RELEASED → released. `status` is deprecated (always reserved): adding a value to a response enum would break clients, so 1.1.0 added an extensible one |
 | `productId / warehouseId` | StockItem sku / warehouse |
 
 ## Tests

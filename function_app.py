@@ -40,6 +40,26 @@ def retrieve_stock_reservation(req: func.HttpRequest, store) -> func.HttpRespons
 
 
 @kit.refusals
+def release_stock(req: func.HttpRequest, store, topic) -> func.HttpResponse:
+    journey = kit.journey(req)
+    reason = req.params.get("reason") or "Order cancelled."
+    if len(reason) > 200:
+        raise kit.invalid("Query parameter reason is at most 200 characters.", req)
+    for _ in range(3):
+        try:
+            released, facts = wms.release(store, req.route_params["reservationId"], reason)
+            break
+        except wms.ReservationNotFound:
+            raise kit.refused(404, "Reservation Not Found", "The WMS has no reservation with this id.", "not-found", req) from None
+        except kit.Changed:
+            continue  # stock or the reservation changed meanwhile: release again
+    else:
+        raise RuntimeError("Stock kept changing; gave up after 3 attempts.")
+    topic.publish(facts, journey)
+    return kit.hal(200, released)
+
+
+@kit.refusals
 def retrieve_stock_item(req: func.HttpRequest, store) -> func.HttpResponse:
     kit.journey(req)
     return kit.hal(200, wms.stock_item(wms.item(store, req.route_params["productId"])))
@@ -56,6 +76,11 @@ def reserveStock(req: func.HttpRequest) -> func.HttpResponse:
 @app.route(route="stock-reservations/{reservationId}", methods=["GET"])
 def retrieveStockReservation(req: func.HttpRequest) -> func.HttpResponse:
     return retrieve_stock_reservation(req, kit.system_store())
+
+
+@app.route(route="stock-reservations/{reservationId}", methods=["DELETE"])
+def releaseStock(req: func.HttpRequest) -> func.HttpResponse:
+    return release_stock(req, kit.system_store(), kit.domain_topic())
 
 
 @app.route(route="stock-items/{productId}", methods=["GET"])
